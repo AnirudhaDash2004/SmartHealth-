@@ -9,7 +9,7 @@ import os
 app=Flask(__name__)
 app.secret_key="supersecretkey123"
 
-model=pickle.load(open("model.pkl", "rb"))
+model=pickle.load(open("model.pkl","rb"))
 
 def init_db():
     conn=sqlite3.connect("database.db")
@@ -31,30 +31,45 @@ def init_db():
         )
     """)
 
-    # Users table with roles
+    # Users table
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
-            password TEXT,
-            role TEXT
+            password TEXT
         )
     """)
 
+    # Check if role column exists, if not add it
+    c.execute("PRAGMA table_info(users)")
+    columns=[col[1] for col in c.fetchall()]
+    if "role" not in columns:
+        c.execute("ALTER TABLE users ADD COLUMN role TEXT")
+
     # Default users
     default_users=[
-        ("admin", generate_password_hash("admin123"), "admin"),
-        ("doctor1", generate_password_hash("doctor123"), "doctor"),
-        ("staff1", generate_password_hash("staff123"), "staff")
+        ("admin", "admin123", "admin"),
+        ("doctor1", "doctor123", "doctor"),
+        ("staff1", "staff123", "staff")
     ]
 
-    for username, password, role in default_users:
+    for username, raw_password, role in default_users:
         c.execute("SELECT * FROM users WHERE username=?", (username,))
-        if not c.fetchone():
+        user=c.fetchone()
+
+        if not user:
+            hashed_password=generate_password_hash(raw_password)
             c.execute(
                 "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                (username, password, role)
+                (username, hashed_password, role)
             )
+        else:
+            # Update existing user if role is missing
+            if len(user) < 4 or user[3] is None:
+                c.execute(
+                    "UPDATE users SET role=? WHERE username=?",
+                    (role, username)
+                )
 
     conn.commit()
     conn.close()
@@ -65,7 +80,7 @@ init_db()
 def home():
     return render_template("index.html")
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET","POST"])
 def login():
     if request.method=="POST":
         username=request.form["username"]
@@ -98,9 +113,9 @@ def predict():
     sleep=float(request.form["sleep"])
     activity=int(request.form["activity"])
 
-    prediction=model.predict([[age, bmi, heart_rate, sleep, activity]])[0]
+    prediction=model.predict([[age,bmi,heart_rate,sleep,activity]])[0]
 
-    risk_map={0: "Low Risk", 1: "Medium Risk", 2: "High Risk"}
+    risk_map={0:"Low Risk",1:"Medium Risk",2:"High Risk"}
     risk=risk_map[prediction]
 
     if risk=="Low Risk":
@@ -117,7 +132,7 @@ def predict():
         INSERT INTO records
         (name, patient_id, contact, age, bmi, heart_rate, sleep_hours, activity_level, risk)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (name, patient_id, contact, age, bmi, heart_rate, sleep, activity, risk))
+    """,(name, patient_id, contact, age, bmi, heart_rate, sleep, activity, risk))
 
     conn.commit()
     conn.close()
@@ -258,7 +273,7 @@ def edit(id):
     if "user" not in session:
         return redirect(url_for("login"))
 
-    if session.get("role") not in ["admin", "doctor"]:
+    if session.get("role") not in ["admin","doctor"]:
         return "Access Denied: Only admin or doctor can edit records."
 
     conn=sqlite3.connect("database.db")
@@ -274,7 +289,7 @@ def update(id):
     if "user" not in session:
         return redirect(url_for("login"))
 
-    if session.get("role") not in ["admin", "doctor"]:
+    if session.get("role") not in ["admin","doctor"]:
         return "Access Denied: Only admin or doctor can update records."
 
     name=request.form["name"]
@@ -293,7 +308,7 @@ def update(id):
         UPDATE records
         SET name=?, patient_id=?, contact=?, age=?, bmi=?, heart_rate=?, sleep_hours=?, activity_level=?
         WHERE id=?
-    """, (name, patient_id, contact, age, bmi, heart_rate, sleep, activity, id))
+    """,(name, patient_id, contact, age, bmi, heart_rate, sleep, activity, id))
 
     conn.commit()
     conn.close()
@@ -308,5 +323,5 @@ def logout():
 
 if __name__=="__main__":
     # app.run(debug=True)
-    # For deployment use:
+    # For deployment:
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

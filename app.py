@@ -164,7 +164,6 @@ def download():
     activity=request.args.get("activity")
     risk=request.args.get("risk")
 
-    # Set PDF path to Downloads folder
     downloads_path=Path.home() / "Downloads"
     pdf_path=downloads_path / f"{patient_id}_report.pdf"
 

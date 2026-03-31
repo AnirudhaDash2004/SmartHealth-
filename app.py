@@ -1,6 +1,7 @@
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from flask import Flask, render_template, request, redirect, session, url_for
+from flask import Flask, render_template, request, redirect, session, url_for, send_file
+from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
 import pickle
 import sqlite3
@@ -163,7 +164,11 @@ def download():
     activity=request.args.get("activity")
     risk=request.args.get("risk")
 
-    doc=SimpleDocTemplate("report.pdf")
+    # Set PDF path to Downloads folder
+    downloads_path=Path.home() / "Downloads"
+    pdf_path=downloads_path / f"{patient_id}_report.pdf"
+
+    doc=SimpleDocTemplate(str(pdf_path))
     styles=getSampleStyleSheet()
 
     story=[]
@@ -197,7 +202,11 @@ def download():
 
     doc.build(story)
 
-    return "PDF Generated! Check your project folder."
+    return send_file(
+        str(pdf_path),
+        as_attachment=True,
+        download_name=f"{patient_id}_report.pdf"
+    )
 
 @app.route("/admin")
 def admin():

@@ -1,19 +1,21 @@
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, request, redirect, session, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 import pickle
 import sqlite3
 import os
 
 app=Flask(__name__)
-app.secret_key="your_secret_key"
+app.secret_key="supersecretkey123"
 
-model=pickle.load(open("model.pkl","rb"))
+model=pickle.load(open("model.pkl", "rb"))
 
 def init_db():
     conn=sqlite3.connect("database.db")
     c=conn.cursor()
 
+    # Patient records table
     c.execute("""
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,6 +31,31 @@ def init_db():
         )
     """)
 
+    # Users table with roles
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            role TEXT
+        )
+    """)
+
+    # Default users
+    default_users=[
+        ("admin", generate_password_hash("admin123"), "admin"),
+        ("doctor1", generate_password_hash("doctor123"), "doctor"),
+        ("staff1", generate_password_hash("staff123"), "staff")
+    ]
+
+    for username, password, role in default_users:
+        c.execute("SELECT * FROM users WHERE username=?", (username,))
+        if not c.fetchone():
+            c.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                (username, password, role)
+            )
+
     conn.commit()
     conn.close()
 
@@ -38,21 +65,28 @@ init_db()
 def home():
     return render_template("index.html")
 
-@app.route("/login",methods=["GET","POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method=="POST":
         username=request.form["username"]
         password=request.form["password"]
 
-        if username=="admin" and password=="1234":
+        conn=sqlite3.connect("database.db")
+        c=conn.cursor()
+        c.execute("SELECT * FROM users WHERE username=?", (username,))
+        user=c.fetchone()
+        conn.close()
+
+        if user and check_password_hash(user[2], password):
             session["user"]=username
-            return redirect("/admin")
+            session["role"]=user[3]
+            return redirect(url_for("admin"))
         else:
             return "Invalid Credentials"
 
     return render_template("login.html")
 
-@app.route("/predict",methods=["POST"])
+@app.route("/predict", methods=["POST"])
 def predict():
     name=request.form["name"]
     patient_id=request.form["patient_id"]
@@ -64,9 +98,9 @@ def predict():
     sleep=float(request.form["sleep"])
     activity=int(request.form["activity"])
 
-    prediction=model.predict([[age,bmi,heart_rate,sleep,activity]])[0]
+    prediction=model.predict([[age, bmi, heart_rate, sleep, activity]])[0]
 
-    risk_map={0:"Low Risk",1:"Medium Risk",2:"High Risk"}
+    risk_map={0: "Low Risk", 1: "Medium Risk", 2: "High Risk"}
     risk=risk_map[prediction]
 
     if risk=="Low Risk":
@@ -80,10 +114,10 @@ def predict():
     c=conn.cursor()
 
     c.execute("""
-        INSERT INTO records 
-        (name,patient_id,contact,age,bmi,heart_rate,sleep_hours,activity_level,risk)
-        VALUES (?,?,?,?,?,?,?,?,?)
-    """,(name,patient_id,contact,age,bmi,heart_rate,sleep,activity,risk))
+        INSERT INTO records
+        (name, patient_id, contact, age, bmi, heart_rate, sleep_hours, activity_level, risk)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, patient_id, contact, age, bmi, heart_rate, sleep, activity, risk))
 
     conn.commit()
     conn.close()
@@ -104,8 +138,6 @@ def predict():
 
 @app.route("/download")
 def download():
-    from flask import request
-
     name=request.args.get("name")
     patient_id=request.args.get("patient_id")
     contact=request.args.get("contact")
@@ -120,24 +152,23 @@ def download():
     styles=getSampleStyleSheet()
 
     story=[]
+    story.append(Paragraph("SmartHealth+ Medical Report", styles["Title"]))
+    story.append(Spacer(1, 12))
 
-    story.append(Paragraph("SmartHealth+ Medical Report",styles['Title']))
-    story.append(Spacer(1,12))
+    story.append(Paragraph(f"Patient Name: {name}", styles["Normal"]))
+    story.append(Paragraph(f"Patient ID: {patient_id}", styles["Normal"]))
+    story.append(Paragraph(f"Contact: {contact}", styles["Normal"]))
+    story.append(Spacer(1, 12))
 
-    story.append(Paragraph(f"Patient Name: {name}",styles['Normal']))
-    story.append(Paragraph(f"Patient ID: {patient_id}",styles['Normal']))
-    story.append(Paragraph(f"Contact: {contact}",styles['Normal']))
-    story.append(Spacer(1,12))
+    story.append(Paragraph("Health Data", styles["Heading2"]))
+    story.append(Paragraph(f"Age: {age}", styles["Normal"]))
+    story.append(Paragraph(f"BMI: {bmi}", styles["Normal"]))
+    story.append(Paragraph(f"Heart Rate: {heart_rate}", styles["Normal"]))
+    story.append(Paragraph(f"Sleep Hours: {sleep}", styles["Normal"]))
+    story.append(Paragraph(f"Activity Level: {activity}", styles["Normal"]))
+    story.append(Spacer(1, 12))
 
-    story.append(Paragraph("Health Data",styles['Heading2']))
-    story.append(Paragraph(f"Age: {age}",styles['Normal']))
-    story.append(Paragraph(f"BMI: {bmi}",styles['Normal']))
-    story.append(Paragraph(f"Heart Rate: {heart_rate}",styles['Normal']))
-    story.append(Paragraph(f"Sleep Hours: {sleep}",styles['Normal']))
-    story.append(Paragraph(f"Activity Level: {activity}",styles['Normal']))
-    story.append(Spacer(1,12))
-
-    story.append(Paragraph(f"Risk Level: {risk}",styles['Heading2']))
+    story.append(Paragraph(f"Risk Level: {risk}", styles["Heading2"]))
 
     if risk=="Low Risk":
         advice="You are healthy! Maintain a balanced diet, exercise regularly, and sleep well."
@@ -146,8 +177,8 @@ def download():
     else:
         advice="High risk detected. Immediate consultation with a doctor is strongly recommended."
 
-    story.append(Paragraph("Recommendation:",styles['Heading2']))
-    story.append(Paragraph(advice,styles['Normal']))
+    story.append(Paragraph("Recommendation:", styles["Heading2"]))
+    story.append(Paragraph(advice, styles["Normal"]))
 
     doc.build(story)
 
@@ -155,33 +186,30 @@ def download():
 
 @app.route("/admin")
 def admin():
-    # 🔍 Get search + filter values from URL
+    if "user" not in session:
+        return redirect(url_for("login"))
+
     search=request.args.get("search")
     filter_type=request.args.get("filter")
 
     conn=sqlite3.connect("database.db")
     c=conn.cursor()
 
-    # 🧠 Dynamic query
     query="SELECT * FROM records WHERE 1=1"
     params=[]
 
-    # 🔍 Search (by name OR patient_id)
     if search:
         query+=" AND (name LIKE ? OR patient_id LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%"])
 
-    # 🎯 Filter
     if filter_type=="high":
         query+=" AND risk='High Risk'"
     elif filter_type=="recent":
         query+=" ORDER BY id DESC LIMIT 5"
 
-    # Run query
     c.execute(query, params)
     data=c.fetchall()
 
-    # 📊 Dashboard stats (KEEP SAME)
     c.execute("SELECT COUNT(*) FROM records WHERE risk='Low Risk'")
     low=c.fetchone()[0]
 
@@ -193,6 +221,8 @@ def admin():
 
     c.execute("SELECT AVG(bmi) FROM records")
     avg_bmi=c.fetchone()[0]
+    if avg_bmi is None:
+        avg_bmi=0
 
     conn.close()
 
@@ -202,14 +232,21 @@ def admin():
         low=low,
         medium=medium,
         high=high,
-        avg_bmi=avg_bmi
+        avg_bmi=avg_bmi,
+        username=session.get("user"),
+        role=session.get("role")
     )
-    
+
 @app.route("/delete/<int:id>")
 def delete(id):
+    if "user" not in session:
+        return redirect(url_for("login"))
+
+    if session.get("role")!="admin":
+        return "Access Denied: Only admin can delete records."
+
     conn=sqlite3.connect("database.db")
     c=conn.cursor()
-
     c.execute("DELETE FROM records WHERE id=?", (id,))
     conn.commit()
     conn.close()
@@ -218,22 +255,31 @@ def delete(id):
 
 @app.route("/edit/<int:id>")
 def edit(id):
+    if "user" not in session:
+        return redirect(url_for("login"))
+
+    if session.get("role") not in ["admin", "doctor"]:
+        return "Access Denied: Only admin or doctor can edit records."
+
     conn=sqlite3.connect("database.db")
     c=conn.cursor()
-
     c.execute("SELECT * FROM records WHERE id=?", (id,))
     record=c.fetchone()
-
     conn.close()
 
     return render_template("edit.html", record=record)
 
 @app.route("/update/<int:id>", methods=["POST"])
 def update(id):
+    if "user" not in session:
+        return redirect(url_for("login"))
+
+    if session.get("role") not in ["admin", "doctor"]:
+        return "Access Denied: Only admin or doctor can update records."
+
     name=request.form["name"]
     patient_id=request.form["patient_id"]
     contact=request.form["contact"]
-
     age=request.form["age"]
     bmi=request.form["bmi"]
     heart_rate=request.form["heart_rate"]
@@ -256,9 +302,11 @@ def update(id):
 
 @app.route("/logout")
 def logout():
-    session.pop("user",None)
-    return redirect("/login")
+    session.pop("user", None)
+    session.pop("role", None)
+    return redirect(url_for("login"))
 
 if __name__=="__main__":
-    #app.run(debug=True)
+    # app.run(debug=True)
+    # For deployment use:
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

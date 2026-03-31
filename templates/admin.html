@@ -3,7 +3,6 @@
 <head>
     <title>Hospital Dashboard</title>
 
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
@@ -67,15 +66,30 @@
             background-color: red;
             color: white;
         }
+
+        .topbar {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .logout-btn {
+            text-decoration: none;
+            padding: 8px 14px;
+            background: #333;
+            color: white;
+            border-radius: 5px;
+        }
     </style>
 </head>
-
 <body>
 
-<!-- 🔷 Dashboard Heading -->
 <h2>Hospital Dashboard</h2>
 
-<!-- 🔷 Stats -->
+<div class="topbar">
+    <p><b>Logged in as:</b> {{ username }} ({{ role }})</p>
+    <a href="/logout" class="logout-btn">Logout</a>
+</div>
+
 <div class="stats">
     <p><b>Average BMI:</b> {{ avg_bmi|default(0)|round(2) }}</p>
     <p><b>Low Risk:</b> {{ low }}</p>
@@ -83,7 +97,6 @@
     <p><b>High Risk:</b> {{ high }}</p>
 </div>
 
-<!-- 🔷 Chart -->
 <canvas id="riskChart" width="400" height="200"></canvas>
 
 <script>
@@ -103,24 +116,18 @@
 
 <br><br>
 
-<!-- 🔍 SEARCH + FILTER -->
 <div class="form-box">
     <form method="GET" action="/admin">
-        
         <input type="text" name="search" placeholder="Search by Name or Patient ID">
-
         <select name="filter">
             <option value="">All</option>
             <option value="high">High Risk</option>
             <option value="recent">Recent</option>
         </select>
-
         <button type="submit">Apply</button>
-
     </form>
 </div>
 
-<!-- 🔷 Table -->
 <h2>Patient Records</h2>
 
 <table>
@@ -152,13 +159,21 @@
         <td>{{ row[9] }}</td>
 
         <td class="actions">
-            <a href="/edit/{{ row[0] }}" class="edit">Edit</a>
-            <a href="/delete/{{ row[0] }}" class="delete"
-               onclick="return confirm('Delete this record?')">Delete</a>
+            {% if role == "admin" or role == "doctor" %}
+                <a href="/edit/{{ row[0] }}" class="edit">Edit</a>
+            {% endif %}
+
+            {% if role == "admin" %}
+                <a href="/delete/{{ row[0] }}" class="delete"
+                   onclick="return confirm('Delete this record?')">Delete</a>
+            {% endif %}
+
+            {% if role == "staff" %}
+                <span>View Only</span>
+            {% endif %}
         </td>
     </tr>
     {% endfor %}
-
 </table>
 
 </body>

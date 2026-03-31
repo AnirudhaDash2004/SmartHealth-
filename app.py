@@ -3,6 +3,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from flask import Flask, render_template, request, redirect, session, url_for, send_file
 from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
+import tempfile
 import pickle
 import sqlite3
 import os
@@ -164,10 +165,11 @@ def download():
     activity=request.args.get("activity")
     risk=request.args.get("risk")
 
-    downloads_path=Path.home() / "Downloads"
-    pdf_path=downloads_path / f"{patient_id}_report.pdf"
+    temp_file=tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    pdf_path=temp_file.name
+    temp_file.close()
 
-    doc=SimpleDocTemplate(str(pdf_path))
+    doc=SimpleDocTemplate(pdf_path)
     styles=getSampleStyleSheet()
 
     story=[]
@@ -202,7 +204,7 @@ def download():
     doc.build(story)
 
     return send_file(
-        str(pdf_path),
+        pdf_path,
         as_attachment=True,
         download_name=f"{patient_id}_report.pdf"
     )
